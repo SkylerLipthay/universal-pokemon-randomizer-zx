@@ -31,6 +31,7 @@ package com.dabomstew.pkrandom.romhandlers;
 import java.io.PrintStream;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.function.Function;
 
 import com.dabomstew.pkrandom.*;
 import com.dabomstew.pkrandom.constants.*;
@@ -5893,14 +5894,14 @@ public abstract class AbstractRomHandler implements RomHandler {
 
         // Group the entire Pokemon list by growthCurve and by type (the latter only if `sameType`
         // is `true`).
-        Function<Pokemon, ?> grouper = sameType
-            ? pk -> List.of(
+        Function<Pokemon, ?> grouper = sameType ?
+            pk -> Arrays.asList(
                 pk.growthCurve,
-                pk.secondaryType == null
-                    ? EnumSet.of(pk.primaryType)
-                    : EnumSet.of(pk.primaryType, pk.secondaryType)
-            )
-            : pk -> pk.growthCurve;
+                pk.secondaryType == null ?
+                    EnumSet.of(pk.primaryType) :
+                    EnumSet.of(pk.primaryType, pk.secondaryType)
+            ) :
+            pk -> pk.growthCurve;
         List<List<Pokemon>> groups = new ArrayList<>(
             mainPokemonList.stream()
                 .collect(Collectors.groupingBy(grouper))
