@@ -2285,7 +2285,7 @@ public abstract class AbstractRomHandler implements RomHandler {
 
     @Override
     public void pickTrainerMovesets(Settings settings) {
-        boolean isCyclicEvolutions = settings.getEvolutionsMod() == Settings.EvolutionsMod.RANDOM_EVERY_LEVEL;
+        boolean isCyclicEvolutions = settings.getEvolutionsMod() == Settings.EvolutionsMod.RANDOM_EVERY_LEVEL || settings.getEvolutionsMod() == Settings.EvolutionsMod.STONE_EVO_ONLY;
         boolean doubleBattleMode = settings.isDoubleBattleMode();
 
         List<Trainer> trainers = getTrainers();
@@ -5866,6 +5866,102 @@ public abstract class AbstractRomHandler implements RomHandler {
 
         // If we made it out of the loop, we weren't able to randomize evos.
         throw new RandomizationException("Not able to randomize evolutions in a sane amount of retries.");
+    }
+
+    @Override
+    public void randomizeEvolutionsByStone(Settings settings) {
+        boolean sameType = settings.isEvosSameTyping();
+        boolean forceChange = settings.isEvosForceChange();
+
+        checkPokemonRestrictions();
+        List<Pokemon> pokemonPool = new ArrayList<>(mainPokemonList);
+
+        Set<EvolutionPair> oldEvoPairs = new HashSet<>();
+
+        if (forceChange) {
+            for (Pokemon pk : pokemonPool) {
+                for (Evolution ev : pk.evolutionsFrom) {
+                    oldEvoPairs.add(new EvolutionPair(ev.from, ev.to));
+                }
+            }
+        }
+
+        for (Pokemon pk : pokemonPool) {
+            pk.evolutionsFrom.clear();
+            pk.evolutionsTo.clear();
+        }
+
+        // Shuffle pokemon list so the results aren't overly predictable.
+        Collections.shuffle(pokemonPool, this.random);
+
+        for (Pokemon fromPK : pokemonPool) {
+            List<Pokemon> replacements = new ArrayList<>();
+
+            // Step 1: base filters
+            for (Pokemon pk : mainPokemonList) {
+                // Prevent evolving into oneself (mandatory)
+                if (pk == fromPK) {
+                    continue;
+                }
+
+                // Force same EXP curve (mandatory)
+                if (pk.growthCurve != fromPK.growthCurve) {
+                    continue;
+                }
+
+                // Prevent evolving into old thing if flagged
+                EvolutionPair ep = new EvolutionPair(fromPK, pk);
+                if (forceChange && oldEvoPairs.contains(ep)) {
+                    continue;
+                }
+
+                // Passes everything, add as a candidate.
+                replacements.add(pk);
+            }
+
+            // Step 2: filter by type, if needed
+            if (sameType) {
+                Set<Pokemon> includeType = new HashSet<>();
+                for (Pokemon pk : replacements) {
+                    if (pk.primaryType == fromPK.primaryType
+                            || (fromPK.secondaryType != null && pk.primaryType == fromPK.secondaryType)
+                            || (pk.secondaryType != null && pk.secondaryType == fromPK.primaryType)
+                            || (pk.secondaryType != null && pk.secondaryType == fromPK.secondaryType)) {
+                        includeType.add(pk);
+                    }
+                }
+
+                if (includeType.size() != 0) {
+                    replacements.retainAll(includeType);
+                }
+            }
+
+            if (replacements.size() == 0) {
+                throw new RandomizationException("Failed to find random evolution target.");
+            }
+
+            // Step 3: pick
+            Pokemon picked = replacements.get(this.random.nextInt(replacements.size()));
+
+            // Step 4: create new level 1 evo and add it to the new evos pool
+            Evolution newEvo = new Evolution(fromPK, picked, false, EvolutionType.STONE, Gen3Items.moonStone);
+            // Idk wtf this code all does
+            boolean checkCosmetics = true;
+            if (picked.formeNumber > 0) {
+                newEvo.forme = picked.formeNumber;
+                newEvo.formeSuffix = picked.formeSuffix;
+                checkCosmetics = false;
+            }
+            if (checkCosmetics && newEvo.to.cosmeticForms > 0) {
+                newEvo.forme = newEvo.to.getCosmeticFormNumber(this.random.nextInt(newEvo.to.cosmeticForms));
+            } else if (!checkCosmetics && picked.cosmeticForms > 0) {
+                newEvo.forme += picked.getCosmeticFormNumber(this.random.nextInt(picked.cosmeticForms));
+            }
+            fromPK.evolutionsFrom.add(newEvo);
+            picked.evolutionsTo.add(newEvo);
+        }
+
+        // TODO: Prevent evolution cycles
     }
 
     @Override

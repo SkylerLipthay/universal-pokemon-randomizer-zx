@@ -124,7 +124,7 @@ public class Settings {
 
     // Evolutions
     public enum EvolutionsMod {
-        UNCHANGED, RANDOM, RANDOM_EVERY_LEVEL
+        UNCHANGED, RANDOM, RANDOM_EVERY_LEVEL, STONE_EVO_ONLY
     }
 
     private EvolutionsMod evolutionsMod = EvolutionsMod.UNCHANGED;
