@@ -5874,94 +5874,90 @@ public abstract class AbstractRomHandler implements RomHandler {
         boolean forceChange = settings.isEvosForceChange();
 
         checkPokemonRestrictions();
-        List<Pokemon> pokemonPool = new ArrayList<>(mainPokemonList);
 
+        // Maintain stock evolution pairs for enforcing `forceChange`.
         Set<EvolutionPair> oldEvoPairs = new HashSet<>();
-
         if (forceChange) {
-            for (Pokemon pk : pokemonPool) {
+            for (Pokemon pk : mainPokemonList) {
                 for (Evolution ev : pk.evolutionsFrom) {
                     oldEvoPairs.add(new EvolutionPair(ev.from, ev.to));
                 }
             }
         }
 
-        for (Pokemon pk : pokemonPool) {
+        // Clear all existing evolution pairs.
+        for (Pokemon pk : mainPokemonList) {
             pk.evolutionsFrom.clear();
             pk.evolutionsTo.clear();
         }
 
-        // Shuffle pokemon list so the results aren't overly predictable.
-        Collections.shuffle(pokemonPool, this.random);
+        // Group the entire Pokemon list by growthCurve and by type (the latter only if `sameType`
+        // is `true`).
+        Function<Pokemon, ?> grouper = sameType
+            ? pk -> List.of(
+                pk.growthCurve,
+                pk.secondaryType == null
+                    ? EnumSet.of(pk.primaryType)
+                    : EnumSet.of(pk.primaryType, pk.secondaryType)
+            )
+            : pk -> pk.growthCurve;
+        List<List<Pokemon>> groups = new ArrayList<>(
+            mainPokemonList.stream()
+                .collect(Collectors.groupingBy(grouper))
+                .values()
+        );
 
-        for (Pokemon fromPK : pokemonPool) {
-            List<Pokemon> replacements = new ArrayList<>();
+        // Do not assign evolutions to any group containing only one Pokemon.
+        groups.removeIf(group -> group.size() == 1);
 
-            // Step 1: base filters
-            for (Pokemon pk : mainPokemonList) {
-                // Prevent evolving into oneself (mandatory)
-                if (pk == fromPK) {
-                    continue;
-                }
+        // Randomize the order in each group.
+        groups.forEach(group -> Collections.shuffle(group, this.random));
 
-                // Force same EXP curve (mandatory)
-                if (pk.growthCurve != fromPK.growthCurve) {
-                    continue;
-                }
-
-                // Prevent evolving into old thing if flagged
-                EvolutionPair ep = new EvolutionPair(fromPK, pk);
-                if (forceChange && oldEvoPairs.contains(ep)) {
-                    continue;
-                }
-
-                // Passes everything, add as a candidate.
-                replacements.add(pk);
-            }
-
-            // Step 2: filter by type, if needed
-            if (sameType) {
-                Set<Pokemon> includeType = new HashSet<>();
-                for (Pokemon pk : replacements) {
-                    if (pk.primaryType == fromPK.primaryType
-                            || (fromPK.secondaryType != null && pk.primaryType == fromPK.secondaryType)
-                            || (pk.secondaryType != null && pk.secondaryType == fromPK.primaryType)
-                            || (pk.secondaryType != null && pk.secondaryType == fromPK.secondaryType)) {
-                        includeType.add(pk);
+        if (forceChange) {
+            // Prevent an existing evolution from appearing as a consequtive pair in a group.
+            for (List<Pokemon> group : groups) {
+                for (int i = 0; i < group.size(); i++) {
+                    int j = (i + 1) % group.size();
+                    Pokemon a = group.get(i);
+                    Pokemon b = group.get(j);
+                    if (oldEvoPairs.contains(new EvolutionPair(a, b))) {
+                        // Just swap the order of the two. It's not acceptable for Charmander to
+                        // evolve into Charmeleon, but it *is* acceptable for Charmeleon to evolve
+                        // into Charmander.
+                        group.set(i, b);
+                        group.set(j, a);
                     }
                 }
-
-                if (includeType.size() != 0) {
-                    replacements.retainAll(includeType);
-                }
             }
-
-            if (replacements.size() == 0) {
-                throw new RandomizationException("Failed to find random evolution target.");
-            }
-
-            // Step 3: pick
-            Pokemon picked = replacements.get(this.random.nextInt(replacements.size()));
-
-            // Step 4: create new level 1 evo and add it to the new evos pool
-            Evolution newEvo = new Evolution(fromPK, picked, false, EvolutionType.STONE, Gen3Items.moonStone);
-            // Idk wtf this code all does
-            boolean checkCosmetics = true;
-            if (picked.formeNumber > 0) {
-                newEvo.forme = picked.formeNumber;
-                newEvo.formeSuffix = picked.formeSuffix;
-                checkCosmetics = false;
-            }
-            if (checkCosmetics && newEvo.to.cosmeticForms > 0) {
-                newEvo.forme = newEvo.to.getCosmeticFormNumber(this.random.nextInt(newEvo.to.cosmeticForms));
-            } else if (!checkCosmetics && picked.cosmeticForms > 0) {
-                newEvo.forme += picked.getCosmeticFormNumber(this.random.nextInt(picked.cosmeticForms));
-            }
-            fromPK.evolutionsFrom.add(newEvo);
-            picked.evolutionsTo.add(newEvo);
+            // The only way this would fail to enforce `forceChange` is if `group` contains only all
+            // of the Pokemon of a stock evolution chain. Example: If `group` starts out as
+            // Charmander -> Charmeleon -> Charizard, then after the processing it will be
+            // Charmeleon -> Charizard -> Charmander. Oh well, nothing can be done here.
         }
 
-        // TODO: Prevent evolution cycles
+        // Finally, assign the new evolution chain by using the sequential order of each group.
+        for (List<Pokemon> group : groups) {
+            for (int i = 0; i < group.size(); i++) {
+                int j = (i + 1) % group.size();
+                Pokemon a = group.get(i);
+                Pokemon b = group.get(j);
+
+                Evolution newEvo = new Evolution(a, b, false, EvolutionType.STONE, Gen3Items.moonStone);
+                boolean checkCosmetics = true;
+                if (b.formeNumber > 0) {
+                    newEvo.forme = b.formeNumber;
+                    newEvo.formeSuffix = b.formeSuffix;
+                    checkCosmetics = false;
+                }
+                if (checkCosmetics && newEvo.to.cosmeticForms > 0) {
+                    newEvo.forme = newEvo.to.getCosmeticFormNumber(this.random.nextInt(newEvo.to.cosmeticForms));
+                } else if (!checkCosmetics && b.cosmeticForms > 0) {
+                    newEvo.forme += b.getCosmeticFormNumber(this.random.nextInt(b.cosmeticForms));
+                }
+                a.evolutionsFrom.add(newEvo);
+                b.evolutionsTo.add(newEvo);
+            }
+        }
     }
 
     @Override
