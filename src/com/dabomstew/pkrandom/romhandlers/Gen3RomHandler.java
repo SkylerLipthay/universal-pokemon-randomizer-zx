@@ -4476,10 +4476,9 @@ public class Gen3RomHandler extends AbstractGBRomHandler {
     public void randomizeEvolutionsByStone(Settings settings) {
         super.randomizeEvolutionsByStone(settings);
 
-        // Fill PC with moon stones.
-        if (romEntry.getValue("PCPotionOffset") != 0) {
-            writeWord(romEntry.getValue("PCPotionOffset"), Gen3Items.moonStone);
-            writeWord(romEntry.getValue("PCPotionOffset") + 2, 100);
+        if (romEntry.getValue("OakPokeballs") != 0) {
+            writeWord(romEntry.getValue("OakPokeballs"), Gen3Items.moonStone);
+            writeWord(romEntry.getValue("OakPokeballs") + 2, 8);
         }
     }
 }
